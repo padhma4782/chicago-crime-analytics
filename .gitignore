@@ -15,13 +15,14 @@ mlartifacts/
 # OS
 .DS_Store
 Thumbs.db
-<<<<<<< HEAD
 
+# Large datasets
 cluster_data.csv
+*.csv.gz
+
+# Old project files
 app_New.py
 PatrolIQ_cleaned.csv
 PatrolIQ_datacleaning.ipynb
 PatrolIQ_model.ipynb
 PatrolIQ.docx
-=======
->>>>>>> f24f29a290a7f7df46f7c7ffb97f31e8ab1bf869
