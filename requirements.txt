@@ -2,8 +2,18 @@ streamlit
 pandas
 numpy
 scikit-learn
+<<<<<<< HEAD
 matplotlib
 folium
 streamlit-folium
 joblib
 huggingface_hub
+=======
+plotly
+geopandas
+shapely
+matplotlib
+folium
+streamlit-folium
+seaborn
+>>>>>>> f24f29a290a7f7df46f7c7ffb97f31e8ab1bf869
