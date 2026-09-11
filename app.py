@@ -24,12 +24,34 @@ st.title("🚓 Chicago Crime Analytics Dashboard")
 
 # --------------------------------------------------
 # Load Data
+
+
+import streamlit as st
+import pandas as pd
+from huggingface_hub import hf_hub_download
+
+
 @st.cache_data
 def load_data():
-    return pd.read_csv("cluster_data.csv")
+
+    file_path = hf_hub_download(
+        repo_id="padhmasrini/chicago-crime-data",
+        filename="cluster_data.csv",
+        repo_type="dataset"
+    )
+
+    df = pd.read_csv(file_path)
+
+    df.drop(
+        columns=["Unnamed: 0"],
+        inplace=True,
+        errors="ignore"
+    )
+
+    return df
+
 
 df = load_data()
-df.drop(columns=['Unnamed: 0'], inplace=True, errors='ignore')
 
 # --------------------------------------------------
 # Load Trained K-Means Model + Scaler (USED IN APP)
@@ -106,310 +128,191 @@ elif page == "Geographic Crime Heatmap":
 
     st_folium(m, width=1200, height=700)
 
-# --------------------------------------------------
-# 3️⃣ Crime Zones (K-Means)
-# --------------------------------------------------
+
 # --------------------------------------------------
 # 3️⃣ Crime Zones (K-Means)
 # --------------------------------------------------
 elif page == "Crime Zones (K-Means)":
 
-    st.subheader("🗺️ Crime Zones with K-Means Clustering")
+    st.title("🗺️ Crime Zones with K-Means Clustering")
 
-    if 'crime_zone' not in df.columns:
-        st.error("Crime zone labels not found in dataset.")
+    # --------------------------------------------------
+    # Check crime_zone column
+    # --------------------------------------------------
 
+    if "crime_zone" not in df.columns:
+        st.error("crime_zone column is not available in the dataset.")
+        st.stop()
+
+    # Make sure crime_zone is numeric
+    df["crime_zone"] = pd.to_numeric(
+        df["crime_zone"],
+        errors="coerce"
+    )
+
+    # --------------------------------------------------
+    # Metrics
+    # --------------------------------------------------
+
+    total_crimes = len(df)
+
+    number_zones = df["crime_zone"].nunique()
+
+    zone_counts = df["crime_zone"].value_counts()
+
+    largest_zone = zone_counts.idxmax()
+
+    largest_zone_count = zone_counts.max()
+
+    col1, col2, col3, col4 = st.columns(4)
+
+    col1.metric(
+        "Total Crimes",
+        f"{total_crimes:,}"
+    )
+
+    col2.metric(
+        "Crime Zones",
+        number_zones
+    )
+
+    col3.metric(
+        "Largest Zone",
+        f"Zone {int(largest_zone)}"
+    )
+
+    col4.metric(
+        "Largest Zone Crimes",
+        f"{largest_zone_count:,}"
+    )
+
+    # --------------------------------------------------
+    # Zone selection
+    # --------------------------------------------------
+
+    available_zones = sorted(
+        df["crime_zone"].dropna().unique()
+    )
+
+    selected_zones = st.multiselect(
+        "Select Crime Zones",
+        options=available_zones,
+        default=available_zones,
+        format_func=lambda x: f"Zone {int(x)}"
+    )
+
+    # Filter selected zones
+    map_df = df[
+        df["crime_zone"].isin(selected_zones)
+    ].copy()
+
+    # --------------------------------------------------
+    # Prepare latitude / longitude
+    # --------------------------------------------------
+
+    map_df["Latitude"] = pd.to_numeric(
+        map_df["Latitude"],
+        errors="coerce"
+    )
+
+    map_df["Longitude"] = pd.to_numeric(
+        map_df["Longitude"],
+        errors="coerce"
+    )
+
+    map_df = map_df.dropna(
+        subset=["Latitude", "Longitude", "crime_zone"]
+    )
+
+    # Chicago geographic limits
+    map_df = map_df[
+        (map_df["Latitude"] >= 41.60) &
+        (map_df["Latitude"] <= 42.10) &
+        (map_df["Longitude"] >= -88.00) &
+        (map_df["Longitude"] <= -87.40)
+    ]
+
+    # --------------------------------------------------
+    # Sample points for performance
+    # --------------------------------------------------
+
+    MAX_POINTS = 3000
+
+    if len(map_df) > MAX_POINTS:
+        map_plot = map_df.sample(
+            MAX_POINTS,
+            random_state=42
+        )
     else:
+        map_plot = map_df
 
-        # Remove invalid coordinates / clusters
-        map_df = df.dropna(
-            subset=['Latitude', 'Longitude', 'crime_zone']
-        ).copy()
+    # --------------------------------------------------
+    # Create Folium map
+    # --------------------------------------------------
 
-        map_df['crime_zone'] = map_df['crime_zone'].astype(int)
+    m = folium.Map(
+        location=[41.8781, -87.6298],
+        zoom_start=10,
+        tiles="CartoDB positron"
+    )
 
-        # --------------------------------------------------
-        # SIDEBAR FILTERS
-        # --------------------------------------------------
+    # 10 distinct colors for Zones 0-9
+    zone_colors = [
+        "#e41a1c",
+        "#377eb8",
+        "#4daf4a",
+        "#984ea3",
+        "#ff7f00",
+        "#ffff33",
+        "#a65628",
+        "#f781bf",
+        "#999999",
+        "#00a6a6"
+    ]
 
-        st.sidebar.markdown("### 🎯 Map Controls")
+    # --------------------------------------------------
+    # Plot crime points
+    # --------------------------------------------------
 
-        clusters = sorted(map_df['crime_zone'].unique())
+    for _, row in map_plot.iterrows():
 
-        selected_clusters = st.sidebar.multiselect(
-            "Select Crime Zones",
-            clusters,
-            default=clusters
-        )
+        zone = int(row["crime_zone"])
 
-        filtered_df = map_df[
-            map_df['crime_zone'].isin(selected_clusters)
+        color = zone_colors[
+            zone % len(zone_colors)
         ]
 
-        # --------------------------------------------------
-        # METRICS
-        # --------------------------------------------------
-
-        total_crimes = len(filtered_df)
-        total_zones = filtered_df['crime_zone'].nunique()
-
-        c1, c2, c3, c4 = st.columns(4)
-
-        c1.metric(
-            "Total Crimes",
-            f"{total_crimes:,}"
-        )
-
-        c2.metric(
-            "Crime Zones",
-            total_zones
-        )
-
-        if total_zones > 0:
-            largest_zone = (
-                filtered_df['crime_zone']
-                .value_counts()
-                .index[0]
-            )
-
-            largest_zone_count = (
-                filtered_df['crime_zone']
-                .value_counts()
-                .iloc[0]
-            )
-        else:
-            largest_zone = "-"
-            largest_zone_count = 0
-
-        c3.metric(
-            "Largest Zone",
-            f"Zone {largest_zone}"
-        )
-
-        c4.metric(
-            "Largest Zone Crimes",
-            f"{largest_zone_count:,}"
-        )
-
-        # --------------------------------------------------
-        # CLUSTER COLORS
-        # --------------------------------------------------
-
-        cluster_colors = [
-            "#e6194b",
-            "#3cb44b",
-            "#4363d8",
-            "#f58231",
-            "#911eb4",
-            "#42d4f4",
-            "#f032e6",
-            "#bfef45",
-            "#fabed4",
-            "#469990"
-        ]
-
-        # --------------------------------------------------
-        # CREATE MAP
-        # --------------------------------------------------
-
-        m = folium.Map(
-            location=[41.8781, -87.6298],
-            zoom_start=10,
-            tiles="CartoDB positron",
-            control_scale=True
-        )
-
-        # --------------------------------------------------
-        # CREATE FEATURE GROUP FOR EACH CLUSTER
-        # --------------------------------------------------
-
-        for cluster in selected_clusters:
-
-            cluster_df = filtered_df[
-                filtered_df['crime_zone'] == cluster
-            ]
-
-            color = cluster_colors[
-                cluster % len(cluster_colors)
-            ]
-
-            feature_group = folium.FeatureGroup(
-                name=f"Crime Zone {cluster}"
-            )
-
-            # --------------------------------------------------
-            # LIMIT POINTS ONLY FOR PERFORMANCE
-            # --------------------------------------------------
-
-            display_df = cluster_df.sample(
-                min(1000, len(cluster_df)),
-                random_state=42
-            )
-
-            for _, row in display_df.iterrows():
-
-                popup_html = f"""
-                <div style="width:220px">
-
-                    <h4>🚨 Crime Zone {cluster}</h4>
-
-                    <b>Latitude:</b>
-                    {row['Latitude']:.5f}
-
-                    <br>
-
-                    <b>Longitude:</b>
-                    {row['Longitude']:.5f}
-
-                    <br><br>
-
-                    <b>Year:</b>
-                    {row.get('Year', 'N/A')}
-
-                    <br>
-
-                    <b>Hour:</b>
-                    {row.get('Hour', 'N/A')}
-
-                </div>
-                """
-
-                folium.CircleMarker(
-                    location=[
-                        row['Latitude'],
-                        row['Longitude']
-                    ],
-                    radius=3,
-                    color=color,
-                    fill=True,
-                    fill_color=color,
-                    fill_opacity=0.55,
-                    weight=1,
-                    popup=folium.Popup(
-                        popup_html,
-                        max_width=300
-                    )
-                ).add_to(feature_group)
-
-            feature_group.add_to(m)
-
-        # --------------------------------------------------
-        # LEGEND
-        # --------------------------------------------------
-
-        legend_items = ""
-
-        for cluster in selected_clusters:
-
-            color = cluster_colors[
-                cluster % len(cluster_colors)
-            ]
-
-            count = len(
-                filtered_df[
-                    filtered_df['crime_zone'] == cluster
-                ]
-            )
-
-            legend_items += f"""
-            <div style="
-                margin-bottom:6px;
-                font-size:14px;
-            ">
-                <span style="
-                    display:inline-block;
-                    width:14px;
-                    height:14px;
-                    background:{color};
-                    border-radius:50%;
-                    margin-right:7px;
-                "></span>
-
-                Zone {cluster}
-                <span style="color:#666">
-                    ({count:,})
-                </span>
-            </div>
-            """
-
-        legend_html = f"""
-        <div style="
-            position: fixed;
-            bottom: 30px;
-            left: 30px;
-            z-index: 9999;
-
-            background: white;
-            padding: 12px 16px;
-
-            border-radius: 8px;
-
-            box-shadow:
-                0 2px 8px rgba(0,0,0,0.25);
-
-            min-width: 150px;
-        ">
-
-            <b>Crime Zones</b>
-
-            <hr>
-
-            {legend_items}
-
-        </div>
-        """
-
-        m.get_root().html.add_child(
-            folium.Element(legend_html)
-        )
-
-        # --------------------------------------------------
-        # LAYER CONTROL
-        # --------------------------------------------------
-
-        folium.LayerControl(
-            collapsed=False
+        folium.CircleMarker(
+            location=[
+                row["Latitude"],
+                row["Longitude"]
+            ],
+            radius=3,
+            color=color,
+            fill=True,
+            fill_color=color,
+            fill_opacity=0.65,
+            weight=1,
+            popup=f"Crime Zone: {zone}"
         ).add_to(m)
 
-        # --------------------------------------------------
-        # DISPLAY MAP
-        # --------------------------------------------------
+    # --------------------------------------------------
+    # Display map
+    # --------------------------------------------------
 
-        st_folium(
-            m,
-            width=None,
-            height=700,
-            returned_objects=[]
-        )
+    st.subheader("Crime Zone Map")
 
-        # --------------------------------------------------
-        # CLUSTER SUMMARY
-        # --------------------------------------------------
+    st.caption(
+        f"Displaying {len(map_plot):,} sampled crime locations "
+        f"from {len(map_df):,} selected records."
+    )
 
-        st.markdown("### 📊 Crime Zone Summary")
-
-        zone_summary = (
-            filtered_df
-            .groupby('crime_zone')
-            .size()
-            .reset_index(name='Crime Count')
-            .sort_values(
-                'Crime Count',
-                ascending=False
-            )
-        )
-
-        zone_summary['Percentage'] = (
-            zone_summary['Crime Count']
-            / zone_summary['Crime Count'].sum()
-            * 100
-        ).round(2)
-
-        st.dataframe(
-            zone_summary,
-            use_container_width=True,
-            hide_index=True
-        )
+    st_folium(
+        m,
+        width=None,
+        height=600,
+        returned_objects=[]
+    )
 # --------------------------------------------------
 # 4️⃣ Temporal Pattern Analysis
 # --------------------------------------------------

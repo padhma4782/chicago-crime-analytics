@@ -15,3 +15,10 @@ mlartifacts/
 # OS
 .DS_Store
 Thumbs.db
+
+cluster_data.csv
+app_New.py
+PatrolIQ_cleaned.csv
+PatrolIQ_datacleaning.ipynb
+PatrolIQ_model.ipynb
+PatrolIQ.docx
